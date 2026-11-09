@@ -67,3 +67,51 @@ None. The score contract is emitted exactly as specified (no extra span
 fields). R9 (circumflex rationing) and R14 (listen-back gate) are carried
 in the rule set with parameters; their enforcement lands with the measurer
 in a later milestone, as the rules' realisation notes state.
+
+## M2 — Helio adapter + renderer (2026-11-09)
+
+- `cadence/helio.py` — Helio engine adapter (stdlib only). Call text is
+  the span's `text_encoded` verbatim (compiler owns typography; the
+  adapter never re-encodes). Route detected once per process: primary
+  `--format wav` via the VM-local `/opt/hatch/bin/tts speak --voice
+  avocado_v2:MAI_03`; this bridge prepends a small ID3 tag to the RIFF
+  stream, so the adapter strips it in place and validates with the
+  stdlib wave reader. Fallback (wav error/unreadable): `--format mp3`
+  + ffmpeg decode. The route used is returned per span and recorded in
+  the render log. `--speed` is never passed (hard-blocked on the VM by
+  design; pacing is the renderer's per-unit tempo, never the engine's).
+- `cadence/render.py` + `python3 -m cadence render <score.json> --out
+  <joined.wav> --workdir <dir>` — per span: synth → decode/normalise
+  to 48 kHz mono wav → per-span tempo via ffmpeg `atempo=<span.tempo>`
+  (per-unit only; a global atempo pass over the joined file is
+  forbidden — legacy defect F1) → per-span level from the intensity
+  map (reduced 0.79 / −2 dB · climax-quiet 0.71 / −3 dB · normal 1.0)
+  → silence of `pause_after.seconds` appended (skipped after the final
+  span) → concat of same-format wavs (ffmpeg concat demuxer) → out
+  wav 48 kHz mono. Emits `<out>.timings.json` ([{span_id, segment,
+  act, start_s, end_s, pause_after_s}], measured from the actual
+  assembled parts) and `<out>.renderlog.json` (per-span synth route,
+  raw dur, tempo, gain, out dur; joined vs expected duration). ffmpeg
+  is the primary audio path; a stdlib fallback (duration-exact linear
+  resampling for tempo) covers ffmpeg-less hosts such as this droplet.
+- `tests/test_render.py` — renderer unit tests with `helio.synth_span`
+  stubbed (stdlib wave-module sine, 0.30 s/word; no tts on this host):
+  joined duration = Σ span durs × 1/tempo + Σ pauses (±5%) · pause set
+  exactly {0.35, 0.70, 0.90, 0.0} with no 0.12 flat-join constant ·
+  timings monotonic and measured · render log records route/tempo/
+  durations · intensity gain map exact.
+
+### Test output summary (on the droplet, 2026-11-09)
+
+```
+python3 -m unittest discover -s tests
+Ran 23 tests in 1.051s — OK   (18 M1 + 5 M2)
+```
+
+### Regression fixture (rendered on the VM, same day)
+
+ep.18 script compiled + rendered through Cadence on the VM (tts is
+VM-local; droplet code arrived as a throwaway git-bundle checkout —
+no maintained VM tree). Synth route: wav (ID3 stripped). Artefacts in
+the White Report voice-humanization folder, `fixture-ep18/`; the house
+pipeline under `reels/ep18/` is untouched.
