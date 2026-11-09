@@ -1,0 +1,108 @@
+{
+  "version": "reference-bands-v1",
+  "method": "Per metric [min*0.9, max*1.1] across 3 LibriVox samples measured identically (cadence-metrics-v1); SD/CV metrics (f0_sd_semitones, rate_cv_chunks) widened x0.8/x1.2; share/fraction bands clamped to [0,1]. rate_overall_wpm omitted: reference audio has no transcript, so rate is banded on the chunk-basis CV only.",
+  "metrics": {
+    "f0_mean_hz": [
+      107.082,
+      233.475
+    ],
+    "f0_sd_semitones": [
+      3.4272,
+      8.8452
+    ],
+    "voiced_fraction": [
+      0.5382,
+      0.7227
+    ],
+    "pause_mean_s": [
+      0.2889,
+      0.4752
+    ],
+    "pause_max_s": [
+      0.9864,
+      2.486
+    ],
+    "pause_micro_share": [
+      0.3857,
+      0.5923
+    ],
+    "pause_breath_share": [
+      0.2711,
+      0.3857
+    ],
+    "pause_emphasis_share": [
+      0.1269,
+      0.2429
+    ],
+    "rate_cv_chunks": [
+      0.3367,
+      0.6839
+    ],
+    "dynamic_range_db": [
+      1.863,
+      3.278
+    ]
+  },
+  "samples": [
+    {
+      "key": "emerson",
+      "ia_id": "essays_first_series_0708_librivox",
+      "title": "Essays, First Series \u2014 ch.03 (Emerson)",
+      "url": "https://archive.org/download/essays_first_series_0708_librivox/essays_first_series_03_emerson_64kb.mp3",
+      "fetched": "2026-11-09",
+      "trim": "180 s from offset 30 s (past LibriVox intro)",
+      "metrics": {
+        "f0_mean_hz": 118.98,
+        "f0_sd_semitones": 7.371,
+        "voiced_fraction": 0.636,
+        "pause_mean_s": 0.321,
+        "pause_max_s": 2.14,
+        "pause_micro_share": 0.5384615384615384,
+        "pause_breath_share": 0.32051282051282054,
+        "pause_emphasis_share": 0.14102564102564102,
+        "rate_cv_chunks": 0.5305,
+        "dynamic_range_db": 2.53
+      }
+    },
+    {
+      "key": "lincoln",
+      "ia_id": "abraham_lincoln_history_6_1707_librivox",
+      "title": "Abraham Lincoln: A History (Volume 6) \u2014 ch.03",
+      "url": "https://archive.org/download/abraham_lincoln_history_6_1707_librivox/abrahamlincolnahistory6_03_hay_nicolay_64kb.mp3",
+      "fetched": "2026-11-09",
+      "trim": "180 s from offset 30 s (past LibriVox intro)",
+      "metrics": {
+        "f0_mean_hz": 212.25,
+        "f0_sd_semitones": 4.795,
+        "voiced_fraction": 0.598,
+        "pause_mean_s": 0.432,
+        "pause_max_s": 2.26,
+        "pause_micro_share": 0.42857142857142855,
+        "pause_breath_share": 0.35064935064935066,
+        "pause_emphasis_share": 0.22077922077922077,
+        "rate_cv_chunks": 0.4209,
+        "dynamic_range_db": 2.07
+      }
+    },
+    {
+      "key": "russell",
+      "ia_id": "icarusfutureofscience_2403_librivox",
+      "title": "Icarus; or, The Future of Science \u2014 sec.03 (Russell)",
+      "url": "https://archive.org/download/icarusfutureofscience_2403_librivox/icarusorthefutureofscience_03_russell_64kb.mp3",
+      "fetched": "2026-11-09",
+      "trim": "180 s from offset 30 s (past LibriVox intro)",
+      "metrics": {
+        "f0_mean_hz": 169.43,
+        "f0_sd_semitones": 4.284,
+        "voiced_fraction": 0.657,
+        "pause_mean_s": 0.338,
+        "pause_max_s": 1.096,
+        "pause_micro_share": 0.4939759036144578,
+        "pause_breath_share": 0.30120481927710846,
+        "pause_emphasis_share": 0.20481927710843373,
+        "rate_cv_chunks": 0.5699,
+        "dynamic_range_db": 2.98
+      }
+    }
+  ]
+}

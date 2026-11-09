@@ -125,3 +125,43 @@ subcommand. Fixed by merging all four subcommands
 (compile/render/measure/receipt) into one CLI in a follow-up commit;
 the M3 lane's untracked `measure.py`/`receipt.py`/`test_measure.py`
 were left untouched for that lane to commit.
+
+## M3 — Prosody measurer + human reference bands + acceptance gate + performance receipt (2026-11-09)
+
+- `cadence/measure.py` + CLI `python3 -m cadence measure <audio.wav> [--timings t.json] [--score s.json] --out metrics.json`:
+  decode to 48 kHz mono via ffmpeg when present (stdlib WAV read otherwise);
+  pauses via ffmpeg silencedetect (noise=-40 dB, d=0.08) with an energy-based
+  fallback at identical parameters, classified micro <0.25 s · breath
+  0.25–0.55 s · emphasis >0.55 s, with share+count distribution, mean/max;
+  F0 by autocorrelation (frame 40 ms, hop 20 ms, 50–400 Hz, periodicity
+  ≥0.35) → mean/median Hz, SD in semitones vs median, voiced fraction, and
+  per-act F0 SD when timings+score are given; rate = overall wpm from the
+  score when given, local rate CV per-span (basis `spans`) or, for score-less
+  audio, silence-delimited chunk-duration CV (basis `chunks`; chunk CV is
+  always also reported so band comparisons stay like-for-like); loudness
+  dynamics = per-span/per-chunk RMS dB, dynamic range p90−p10. numpy/scipy
+  are lazy imports: the module is importable and testable stdlib-only
+  (droplet has neither numpy nor ffmpeg; real measurement runs in the VM
+  venv + ffmpeg). `evaluate_bands()` in the same module is the acceptance
+  gate: per-metric in/out + in-band %.
+- `cadence/receipt.py` + CLI `python3 -m cadence receipt --render <wav>
+  --score <score.json> --metrics <metrics.json> --bands <bands.json> --out
+  receipt.json`: render/score SHA-256, rule set, per-span directives +
+  measured {dur_s, pause_after_s} + verdict (pause-adherence, span-rate and
+  span-F0-SD checks) with reasons, totals in-band %, prev_receipt_sha256
+  null, receipt_sha256 over the canonical JSON of all other fields.
+- `data/reference-bands-v1.json` — human reference bands measured
+  identically (cadence-metrics-v1) from 3 LibriVox non-fiction samples
+  (Emerson, *Essays, First Series* ch.03 · Nicolay & Hay, *Abraham Lincoln:
+  A History* vol.6 ch.03 · Russell, *Icarus; or, The Future of Science*
+  sec.03; 180 s each from a 30 s offset, past the LibriVox intro; IA ids,
+  URLs and fetch date recorded per sample in the file). Band rule: per
+  metric [min×0.9, max×1.1] across the 3; SD/CV metrics widened ×0.8/×1.2;
+  shares/fractions clamped to [0,1]. No rate-wpm band: reference audio has
+  no transcript, so rate is banded on chunk-basis CV only.
+- Tests: `tests/test_measure.py` (stdlib-only, synthetic sine+silence WAV):
+  pause-classifier bins · distribution shares · F0 of a 120 Hz sine within
+  ±5 % · metrics schema keys · breath-class pause detection. Full suite on
+  the droplet: 28 tests, OK.
+- Acceptance (ep.18 shipped VO vs Cadence fixture): appended below when the
+  M2 fixture lands.
