@@ -115,3 +115,13 @@ VM-local; droplet code arrived as a throwaway git-bundle checkout —
 no maintained VM tree). Synth route: wav (ID3 stripped). Artefacts in
 the White Report voice-humanization folder, `fixture-ep18/`; the house
 pipeline under `reels/ep18/` is untouched.
+
+### M2 addendum — CLI merge fix (2026-11-09)
+
+The M2 commit's `cadence/cli.py` was overwritten in the working tree by
+the parallel M3 lane's CLI (compile/measure/receipt) between the M2
+file drop and the M2 commit, so the committed CLI lacked the `render`
+subcommand. Fixed by merging all four subcommands
+(compile/render/measure/receipt) into one CLI in a follow-up commit;
+the M3 lane's untracked `measure.py`/`receipt.py`/`test_measure.py`
+were left untouched for that lane to commit.

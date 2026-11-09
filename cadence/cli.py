@@ -1,4 +1,4 @@
-"""CLI: python3 -m cadence compile|measure|receipt ..."""
+"""CLI: python3 -m cadence compile|render|measure|receipt ..."""
 import argparse
 import json
 import sys
@@ -12,6 +12,11 @@ def main(argv=None):
     comp = sub.add_parser("compile", help="compile a house-format script to a score JSON")
     comp.add_argument("script", help="path to script.md")
     comp.add_argument("--out", required=True, help="path for score.json")
+    rend = sub.add_parser("render", help="render a score JSON to a joined wav via Helio")
+    rend.add_argument("score", help="path to score.json")
+    rend.add_argument("--out", required=True, help="path for joined.wav")
+    rend.add_argument("--workdir", required=True,
+                      help="dir for per-span intermediates")
     meas = sub.add_parser("measure", help="measure prosody of a render")
     meas.add_argument("audio", help="path to audio (wav/mp3/...)")
     meas.add_argument("--timings", help="path to timings JSON")
@@ -31,6 +36,15 @@ def main(argv=None):
             fh.write("\n")
         print("cadence: %s -> %s (%d spans, rule_set=%s)"
               % (args.script, args.out, len(score["spans"]), score["rule_set"]))
+        return 0
+    if args.command == "render":
+        from .render import render_file
+        result = render_file(args.score, args.out, args.workdir)
+        print("cadence: %s -> %s (%d spans, %.3fs, expected %.3fs)"
+              % (args.score, args.out, result["spans"],
+                 result["duration_s"], result["expected_duration_s"]))
+        print("cadence: timings -> %s" % result["timings"])
+        print("cadence: renderlog -> %s" % result["renderlog"])
         return 0
     if args.command == "measure":
         from .measure import measure
