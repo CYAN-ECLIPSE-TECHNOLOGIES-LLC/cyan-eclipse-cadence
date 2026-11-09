@@ -1,0 +1,12 @@
+# audio (never in this repo - text source only)
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.ogg
+__pycache__/
+*.pyc
+scratch/
+*.tmp
+score.json
