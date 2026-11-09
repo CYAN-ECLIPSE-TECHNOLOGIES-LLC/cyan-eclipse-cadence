@@ -165,3 +165,28 @@ were left untouched for that lane to commit.
   the droplet: 28 tests, OK.
 - Acceptance (ep.18 shipped VO vs Cadence fixture): appended below when the
   M2 fixture lands.
+
+### M3 acceptance — ep.18 (2026-11-09)
+
+Measured identically against reference-bands-v1: shipped VO
+(`reels/ep18/work/vo-joined.wav`, 52.94 s, chunks basis, no score) vs the
+M2 Cadence fixture (`fixture-ep18/cadence-ep18.wav`, 67.14 s, spans basis,
+17 spans). Full table: `fixture-ep18/acceptance-ep18.md` + `.json`;
+sealed receipt `fixture-ep18/receipt-ep18.json`.
+
+- Metric gate in-band: shipped 70 % (7/10) · Cadence 50 % (5/10).
+- Cadence in-band: F0 mean 122.15 Hz · F0 SD 5.50 st · pause breath share
+  0.28 · pause max 1.381 s · rate CV (chunk) 0.587. Out-of-band: voiced
+  fraction 0.391 (shipped also out, 0.416 — both TTS takes sit below the
+  human band 0.538–0.723), pause mean 0.479 s (band ≤0.475, marginal),
+  pause micro share 0.380 (band ≥0.386, marginal), pause emphasis share
+  0.34 (designed emphasis/act pauses exceed the human share band),
+  chunk-basis dynamic range 5.3 dB (span-basis is 2.46 dB, in-band — the
+  chunk figure is inflated by pause-split quiet chunks).
+- Span-level receipt: 17/17 in-band (100 %) — every span's measured pause
+  matches its directive within tolerance; no re-compile candidates at
+  span level. The metric-gate misses are global-shape findings (pause
+  budget + voiced fraction), i.e. rule-set/band calibration input for
+  M4, not span defects.
+- Cadence-only figures: overall 134.0 wpm · span rate CV 0.227 ·
+  per-act F0 SD hook 6.61 / turn 4.99 / evidence 6.28 / payoff 5.20 st.
