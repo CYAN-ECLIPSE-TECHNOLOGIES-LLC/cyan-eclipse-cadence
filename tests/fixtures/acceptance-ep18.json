@@ -1,0 +1,213 @@
+{
+  "schema": "cadence-acceptance-v1",
+  "episode": "ep18",
+  "bands_version": "reference-bands-v1",
+  "shipped": {
+    "audio": "reels/ep18/work/vo-joined.wav",
+    "basis": "chunks",
+    "duration_s": 52.944,
+    "gate": {
+      "metrics": {
+        "f0_mean_hz": {
+          "value": 114.22,
+          "band": [
+            107.082,
+            233.475
+          ],
+          "in_band": true
+        },
+        "f0_sd_semitones": {
+          "value": 5.132,
+          "band": [
+            3.4272,
+            8.8452
+          ],
+          "in_band": true
+        },
+        "voiced_fraction": {
+          "value": 0.416,
+          "band": [
+            0.5382,
+            0.7227
+          ],
+          "in_band": false
+        },
+        "pause_mean_s": {
+          "value": 0.361,
+          "band": [
+            0.2889,
+            0.4752
+          ],
+          "in_band": true
+        },
+        "pause_max_s": {
+          "value": 0.714,
+          "band": [
+            0.9864,
+            2.486
+          ],
+          "in_band": false
+        },
+        "pause_micro_share": {
+          "value": 0.42857142857142855,
+          "band": [
+            0.3857,
+            0.5923
+          ],
+          "in_band": true
+        },
+        "pause_breath_share": {
+          "value": 0.2857142857142857,
+          "band": [
+            0.2711,
+            0.3857
+          ],
+          "in_band": true
+        },
+        "pause_emphasis_share": {
+          "value": 0.2857142857142857,
+          "band": [
+            0.1269,
+            0.2429
+          ],
+          "in_band": false
+        },
+        "rate_overall_wpm": {
+          "value": null,
+          "band": null,
+          "in_band": null
+        },
+        "rate_cv_chunks": {
+          "value": 0.4538,
+          "band": [
+            0.3367,
+            0.6839
+          ],
+          "in_band": true
+        },
+        "dynamic_range_db": {
+          "value": 3.14,
+          "band": [
+            1.863,
+            3.278
+          ],
+          "in_band": true
+        }
+      },
+      "in_band_count": 7,
+      "judged_count": 10,
+      "in_band_pct": 70.0
+    },
+    "metrics_file": "metrics-shipped (scratch-offload/cadence)"
+  },
+  "cadence": {
+    "audio": "fixture-ep18/cadence-ep18.wav",
+    "basis": "spans",
+    "duration_s": 67.144,
+    "gate": {
+      "metrics": {
+        "f0_mean_hz": {
+          "value": 122.15,
+          "band": [
+            107.082,
+            233.475
+          ],
+          "in_band": true
+        },
+        "f0_sd_semitones": {
+          "value": 5.5,
+          "band": [
+            3.4272,
+            8.8452
+          ],
+          "in_band": true
+        },
+        "voiced_fraction": {
+          "value": 0.391,
+          "band": [
+            0.5382,
+            0.7227
+          ],
+          "in_band": false
+        },
+        "pause_mean_s": {
+          "value": 0.479,
+          "band": [
+            0.2889,
+            0.4752
+          ],
+          "in_band": false
+        },
+        "pause_max_s": {
+          "value": 1.381,
+          "band": [
+            0.9864,
+            2.486
+          ],
+          "in_band": true
+        },
+        "pause_micro_share": {
+          "value": 0.38,
+          "band": [
+            0.3857,
+            0.5923
+          ],
+          "in_band": false
+        },
+        "pause_breath_share": {
+          "value": 0.28,
+          "band": [
+            0.2711,
+            0.3857
+          ],
+          "in_band": true
+        },
+        "pause_emphasis_share": {
+          "value": 0.34,
+          "band": [
+            0.1269,
+            0.2429
+          ],
+          "in_band": false
+        },
+        "rate_overall_wpm": {
+          "value": 134.0,
+          "band": null,
+          "in_band": null
+        },
+        "rate_cv_chunks": {
+          "value": 0.5866,
+          "band": [
+            0.3367,
+            0.6839
+          ],
+          "in_band": true
+        },
+        "dynamic_range_db": {
+          "value": 5.3,
+          "band": [
+            1.863,
+            3.278
+          ],
+          "in_band": false
+        }
+      },
+      "in_band_count": 5,
+      "judged_count": 10,
+      "in_band_pct": 50.0
+    }
+  },
+  "cadence_span_rate_cv": 0.227,
+  "cadence_out_of_band_spans": [],
+  "receipt": {
+    "path": "fixture-ep18/receipt-ep18.json",
+    "receipt_sha256": "494afcb7a79ff760a6dcf0290fa62c3db3a5d541786fa36f99b8e584a8a81524",
+    "span_in_band_pct": 100.0
+  },
+  "notes": [
+    "Rate CV band is chunk-basis; both takes are gated on chunk CV (like-for-like). Cadence span-basis CV is reported separately.",
+    "Dynamic range gate uses chunk-basis RMS p90-p10 for both takes (like-for-like); Cadence span-basis dynamic range is 2.46 dB.",
+    "Shipped VO has no score: overall wpm not measurable; Cadence overall wpm 134.0 has no reference band (LibriVox samples carry no transcript).",
+    "F0 by autocorrelation tracker, identical method for refs and both takes; octave errors inflate SD equally across all three."
+  ]
+}
