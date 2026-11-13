@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyan-eclipse-cadence"
+version = "0.1.0"
+description = "Inspect Cadence scripts, voice data, render records, and receipt chains; record render proposals."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+cyan-eclipse-cadence = "mcp.server:main"
+
+[tool.setuptools]
+py-modules = ["server"]
+packages = ["cadence", "mcp"]
