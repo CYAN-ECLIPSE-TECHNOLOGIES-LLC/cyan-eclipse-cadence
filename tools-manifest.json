@@ -1,0 +1,87 @@
+{
+ "app": "Cyan Eclipse Cadence",
+ "connector": "custom.cadence",
+ "manifest": "tools-manifest/1",
+ "scope_of_record": "SCOPE-MATRIX row 14 of ~/workspace/cyan-eclipse/mcp-connector-commission-20261111/SCOPE-MATRIX.md - script/performance reads T0, render proposals T1 (a render is proposed; the production pipeline's own gates dispose). No T2.",
+ "server": {
+  "entry": "mcp/server.py (python3, stdlib only)",
+  "home": "Shard E /home/witness/app-family/cyan-eclipse-cadence (maintenance home; no git origin configured - see build record)",
+  "name": "cyan-eclipse-cadence-mcp",
+  "transport": "stdio (line-delimited JSON-RPC)",
+  "version": "0.1.0"
+ },
+ "tools": [
+  {
+   "class": "T0",
+   "fences": "Read-only recomputation over the facade receipt store.",
+   "granted": true,
+   "inputs": "no arguments",
+   "name": "cadence_receipts_verify",
+   "outputs": "The chain verdict (ok, diverging seq or null, count) and the chain head."
+  },
+  {
+   "class": "T2-withheld",
+   "fences": "WITHHELD - no apply tool exists on the facade (no T2 in SCOPE-MATRIX row 14); refused by the connector before any server call.",
+   "granted": false,
+   "inputs": "not applicable (refused client-side)",
+   "name": "cadence_render_apply",
+   "outputs": "Nothing: the name is refused client-side with this fence named."
+  },
+  {
+   "class": "T1",
+   "fences": "Propose only: mints a proposal record in the facade proposal area (mcp/proposals/) and nothing else. NO render is started; the White Report production pipeline's own gates dispose of proposals. The Cadence-only voice rule for reels is untouched.",
+   "granted": true,
+   "inputs": "script_id (required); note (optional)",
+   "name": "cadence_render_propose",
+   "outputs": "The minted proposal: proposal id, script id, voice, applied: false, started: false, state: proposed."
+  },
+  {
+   "class": "T1-withheld",
+   "fences": "WITHHELD - not served by the facade and refused by the connector before any server call: renders start only through the White Report production pipeline's own gates, never through this connector.",
+   "granted": false,
+   "inputs": "not applicable (refused client-side)",
+   "name": "cadence_render_start",
+   "outputs": "Nothing: the name is refused client-side with this fence named."
+  },
+  {
+   "class": "T0",
+   "fences": "Read-only. Records are read from the acceptance records the app itself keeps (tests/fixtures/acceptance-*.json).",
+   "granted": true,
+   "inputs": "no arguments",
+   "name": "cadence_renders_list",
+   "outputs": "Render record summaries: record id, episode, take, voice, duration, state, in-band pct."
+  },
+  {
+   "class": "T0",
+   "fences": "Read-only.",
+   "granted": true,
+   "inputs": "record_id (required)",
+   "name": "cadence_renders_read",
+   "outputs": "One render record in full, including its gate counts and source file."
+  },
+  {
+   "class": "T0",
+   "fences": "Read-only. Reads the script files the app stores under tests/fixtures (house-format scripts). A content-minimal receipt is minted into the facade receipt chain.",
+   "granted": true,
+   "inputs": "no arguments",
+   "name": "cadence_scripts_list",
+   "outputs": "The stored scripts: id, repo-relative path, sha256 of the file bytes, segment count."
+  },
+  {
+   "class": "T0",
+   "fences": "Read-only. The score summary is compiled by the app's own compiler (cadence.compile) - engine-true by construction.",
+   "granted": true,
+   "inputs": "script_id (required)",
+   "name": "cadence_scripts_read",
+   "outputs": "Persona, segments (id + raw text), rule set, compiled span count, and the canonical score hash."
+  },
+  {
+   "class": "T0",
+   "fences": "Read-only. The catalogue is read from the app's own adapter module (cadence/helio.py) at call time.",
+   "granted": true,
+   "inputs": "no arguments",
+   "name": "cadence_voices_list",
+   "outputs": "The voice catalogue entries the app stores: voice id, engine, adapter, timeout."
+  }
+ ]
+}

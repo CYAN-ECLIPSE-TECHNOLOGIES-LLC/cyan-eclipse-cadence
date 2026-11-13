@@ -1,9 +1,67 @@
-# Cyan Eclipse Cadence — WORKING NAME
+# Cyan Eclipse Cadence MCP
 
-**WORKING NAME:** "Cyan Eclipse Cadence" is a working name only. Final name is
-an owner pick and a trademark (TM) screen is still owed on the pick.
+**Free and open source under the MIT License.** Cyan Eclipse Cadence MCP is a
+local stdio Model Context Protocol server for inspecting Cadence performance
+scripts, the voice catalogue stored in a Cadence checkout, stored render and
+acceptance records, and the server's hash-chained call receipts. It also records
+render proposals. It works with any MCP-compatible host; no account, API key,
+credential, or paid service is required.
 
-## What it is
+The MCP surface is deliberately non-executing: it has **no render-start or
+render-apply tool**, invokes no speech-synthesis engine, makes no network calls,
+and cannot spend money or third-party synthesis credits. A proposal is only a
+local JSON record for later review.
+
+## Run the MCP server
+
+Requirements: Python 3.10 or newer and this repository. The server uses only
+the Python standard library.
+
+```sh
+git clone https://github.com/CYAN-ECLIPSE-TECHNOLOGIES-LLC/cyan-eclipse-cadence.git
+cd cyan-eclipse-cadence
+python3 server.py
+```
+
+Generic MCP host configuration:
+
+```json
+{
+  "mcpServers": {
+    "cyan-eclipse-cadence": {
+      "command": "python3",
+      "args": ["/absolute/path/to/cyan-eclipse-cadence/server.py"],
+      "env": {
+        "CADENCE_MCP_STATE_DIR": "/absolute/path/to/writable/cadence-state"
+      }
+    }
+  }
+}
+```
+
+`CADENCE_MCP_STATE_DIR` is recommended because successful calls append
+content-minimal hash receipts and proposals are written as JSON files. Set
+`CADENCE_MCP_HOME` to another Cadence checkout when the server should inspect
+that checkout's stored scripts and acceptance records instead of its own.
+
+## MCP tools
+
+| Tool | Purpose |
+| --- | --- |
+| `cadence_scripts_list` | Discover stored scripts and their hashes and segment counts |
+| `cadence_scripts_read` | Read one script and compile its performance score |
+| `cadence_voices_list` | Read the voice catalogue stored in the checkout |
+| `cadence_renders_list` | List stored render and acceptance records |
+| `cadence_renders_read` | Read one stored render or acceptance record in full |
+| `cadence_receipts_verify` | Recompute and verify the facade receipt hash chain |
+| `cadence_render_propose` | Write a local, non-executing render proposal |
+
+The repository includes a sample script and acceptance record so the tools can
+be tried immediately. The server's reads are computed from the checkout's own
+Cadence compiler, synthesis-adapter constants, and acceptance files rather than
+from a second copied dataset.
+
+## What Cadence is
 
 Cadence performs **rhetorical performance compilation with an acoustic
 acceptance gate**: it compiles a reel script the way a compiler compiles code —
@@ -17,34 +75,25 @@ with a graded stress tier, a contour class assigned by clause function
 class with a situation-set duration from a three-class taxonomy (the flat
 0.120 s join of the legacy pipeline appears nowhere), a register per act, a
 per-act tempo bounded to ±12%, and the Delsarte inverse-intensity rule at
-climax (quieter, not louder). Because the current synthesis engine surface is
-plain text, the score is realised through the levers that exist — graded
-emphasis typography and oral punctuation in the encoded text, per-breath-group
-synthesis granularity, per-class join silences, and bounded per-unit tempo —
-and, in later milestones, the rendered audio is measured against corpus-derived
-acceptance bands and sealed into a performance receipt. A bare SSML/emotion
-wrapper annotates text and trusts the engine; Cadence treats delivery as a
-compiled artifact that must pass inspection, under a cited, versioned rule set.
+climax (quieter, not louder).
 
-Design of record: White Report voice-humanization report (2026-11-09), §4.
-
-## v0.1 scope
+## MCP server scope
 
 - Rule set v1 as cited YAML (`rules/rules-v1.yaml`, 14 rules, R1–R14).
-- Performance compiler for the existing house segment script format
+- Performance compiler for the house segment script format
   (`## SCRIPT` section, `[Sn]` segments, optional persona header).
-- Score JSON output per the fixed score contract (see CLI usage).
-- Stdlib-only Python 3.12; stdlib `unittest` test suite.
+- Stored render and acceptance-record inspection.
+- Hash-chained, content-minimal receipts for successful facade calls.
+- Local render proposals that start and apply nothing.
+- Stdlib-only Python; stdlib `unittest` test suites.
 
-## Out of scope (v0.1)
+## Not exposed by the MCP server
 
-- Any audio work: no synthesis, no engine adapter, no prosody measurement,
-  no acceptance gate execution, no performance receipt (later milestones).
-- New TTS engine procurement, voice cloning, SSML-engine adapter.
-- Any UI beyond the CLI + score JSON.
-- Multilingual support.
+- Speech synthesis or any render execution.
+- Voice selection or voice changes.
+- Network calls, accounts, credentials, or paid services.
 - Automatic script rewriting (the compiler flags; a human rewrites).
-- Changing the voice identity.
+- Any UI beyond the MCP server, CLI, and score JSON.
 
 ## CLI usage
 
