@@ -1,0 +1,18 @@
+# Cadence web captions — transcription runtime (Shard E).
+# Installed in the dedicated venv /opt/cadence-whisper-venv; the
+# service process itself stays Python-stdlib. Versions are the exact
+# pip freeze of the deployed venv, 2026-11-14.
+# Rebuild: python3 -m venv /opt/cadence-whisper-venv &&
+#   /opt/cadence-whisper-venv/bin/pip install -r requirements-captions.txt
+# Model (pre-seeded local snapshot, no network at job time):
+#   Systran/faster-whisper-base -> /opt/cadence-whisper-models/faster-whisper-base
+# Note: av is a faster-whisper dependency but is NOT on the runtime
+# path — transcribe.py decodes with ffmpeg and passes numpy PCM
+# (faster-whisper 1.2.1's PyAV decode is incompatible with av 19).
+faster-whisper==1.2.1
+ctranslate2==4.9.0
+tokenizers==0.23.3
+huggingface_hub==2.4.0
+numpy==2.5.4
+onnxruntime==1.32.0
+av==19.0.2

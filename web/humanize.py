@@ -8,8 +8,11 @@ classes (rules-v1: breath 0.35 s, emphasis 0.70 s, act-boundary cap
 and level variation inside the rules envelope, de-harshing EQ, gentle
 bus compression, and loudness normalization to -16 LUFS / -1.5 dBTP.
 
-No synthesis, no transcription, no external calls. Python stdlib +
-ffmpeg only. Design of record: cadence-web-surface-20261114/SPEC.md.
+No synthesis, no external calls. Python stdlib + ffmpeg; the video
+path additionally transcribes its own humanized track locally for
+closed captions (captions.py — a subprocess under its own venv; the
+audio path is never transcribed). Design of record:
+cadence-web-surface-20261114/SPEC.md + cadence-captions-20261114/.
 """
 import array
 import hashlib
@@ -21,6 +24,8 @@ import subprocess
 import sys
 import wave
 from datetime import datetime, timezone
+
+import captions
 
 SR = 22050
 SILENCE_NOISE_DB = "-38dB"
@@ -327,10 +332,22 @@ def video_stream_hash(path):
     return line.split("=", 1)[1] if "=" in line else None
 
 
+# ISO 639-1 (whisper) -> ISO 639-2 (mov_text language tag).
+_LANG3 = {"en": "eng", "es": "spa", "fr": "fra", "de": "deu",
+          "it": "ita", "pt": "por", "nl": "nld", "ja": "jpn",
+          "ko": "kor", "zh": "zho", "ru": "rus", "ar": "ara",
+          "hi": "hin", "pl": "pol", "sv": "swe", "da": "dan",
+          "fi": "fin", "no": "nor", "tr": "tur", "uk": "ukr"}
+
+
 def humanize_video(inp_path, out_path, workdir):
     """Same chain, one more container (SPEC section 10): extract the
     audio track, humanize it, lay it back with the picture stream
-    copied untouched."""
+    copied untouched. The humanized track is then transcribed on this
+    host (captions.py) and the captions are embedded as a mov_text
+    track (mp4/mov) and written as .srt/.vtt sidecars in the job
+    directory; WebM takes the sidecars only (see STATE.md of the
+    captions lane for the container reasoning)."""
     os.makedirs(workdir, exist_ok=True)
     streams = probe_streams(inp_path)
     vids = [s for s in streams if s["codec_type"] == "video"]
@@ -346,13 +363,63 @@ def humanize_video(inp_path, out_path, workdir):
     human_mp3 = os.path.join(workdir, "humanized.mp3")
     receipt = humanize(extracted, human_mp3,
                        os.path.join(workdir, "audio-work"), mode="video")
+
+    # Captions — timed from the HUMANIZED audio (what the listener
+    # actually hears). A caption failure never fails the conversion;
+    # the receipt records the outcome plainly.
+    cap = {"status": "unavailable", "embedded": False}
+    srt_path = None
+    try:
+        t = captions.transcribe(human_mp3, workdir)
+        segs = captions.clean_segments(
+            t["segments"], probe_duration(human_mp3))
+        cap = {"status": "no-speech", "embedded": False,
+               "model": t["model"], "language": t["language"],
+               "language_probability": t["language_probability"],
+               "segments": 0}
+        if segs:
+            job_dir = os.path.dirname(os.path.abspath(out_path))
+            srt_path = os.path.join(job_dir, "captions.srt")
+            vtt_path = os.path.join(job_dir, "captions.vtt")
+            with open(srt_path, "w") as f:
+                f.write(captions.to_srt(segs))
+            with open(vtt_path, "w") as f:
+                f.write(captions.to_vtt(segs))
+            cap.update({"status": "ok", "segments": len(segs),
+                        "sidecars": ["srt", "vtt"]})
+    except Exception as e:  # caption leg only — never the conversion
+        cap = {"status": "unavailable", "embedded": False,
+               "error": type(e).__name__}
+    receipt["captions"] = cap
+
     vhash_before = video_stream_hash(inp_path)
     acodec = (["-c:a", "libopus", "-b:a", "128k"] if ext == ".webm"
               else ["-c:a", "aac", "-b:a", "192k"])
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", inp_path,
-           "-i", human_mp3, "-map", "0:v:0", "-map", "1:a:0",
-           "-c:v", "copy"] + acodec + [out_path]
-    _run(cmd)
+    base_cmd = ["ffmpeg", "-y", "-v", "error", "-i", inp_path,
+                "-i", human_mp3]
+    plain_cmd = (base_cmd + ["-map", "0:v:0", "-map", "1:a:0",
+                             "-c:v", "copy"] + acodec + [out_path])
+    if srt_path and ext in (".mp4", ".mov"):
+        sub_cmd = (base_cmd + ["-i", srt_path,
+                               "-map", "0:v:0", "-map", "1:a:0",
+                               "-map", "2:s:0", "-c:v", "copy"] + acodec
+                   + ["-c:s", "mov_text",
+                      "-metadata:s:s:0",
+                      "language=" + _LANG3.get(cap["language"], "und"),
+                      "-metadata:s:s:0",
+                      "title=Captions (" + cap["language"] +
+                      ") — Cyan Eclipse Cadence", out_path])
+        try:
+            _run(sub_cmd)
+            cap["embedded"] = True
+        except subprocess.CalledProcessError:
+            cap["embedded"] = False
+            cap["embed_note"] = ("caption-track mux failed; the video "
+                                 "was delivered with sidecar captions "
+                                 "only")
+            _run(plain_cmd)
+    else:
+        _run(plain_cmd)
     vhash_after = video_stream_hash(out_path)
     v = vids[0]
     receipt["media"] = {
@@ -368,7 +435,7 @@ def humanize_video(inp_path, out_path, workdir):
                           and vhash_before == vhash_after),
         },
     }
-    receipt["receipt"] = "cadence-web-humanize/v1+video"
+    receipt["receipt"] = "cadence-web-humanize/v1+video+captions"
     receipt["output"]["sha256"] = _sha256(out_path)
     receipt["output"]["bytes"] = os.path.getsize(out_path)
     receipt["output"]["duration_s"] = round(probe_duration(out_path), 2)

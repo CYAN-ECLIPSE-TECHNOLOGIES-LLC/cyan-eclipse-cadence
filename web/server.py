@@ -153,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == BASE + "/api/health":
             self._json(200, {"ok": True, "service": "cadence-web",
-                             "version": "1.0.0",
+                             "version": "1.1.0",
                              "jobs_today": sum(
                                  v.get("jobs", 0) for v in
                                  _counters().get(date.today().isoformat(),
@@ -186,6 +186,7 @@ class Handler(BaseHTTPRequestHandler):
             if not rec or rec["status"] != "done":
                 self._err(404, "Not ready, or the job is gone.")
                 return
+            disposition = True
             if kind == "download":
                 ext = rec.get("ext", ".mp3")
                 fpath = rec["out"]
@@ -194,6 +195,19 @@ class Handler(BaseHTTPRequestHandler):
             elif kind == "receipt":
                 fpath, ctype, fname = (rec["receipt_path"], "application/json",
                                        "cadence-receipt.json")
+            elif kind in ("captions-srt", "captions-vtt",
+                          "captions-vtt-view"):
+                cap_ext = ".srt" if kind == "captions-srt" else ".vtt"
+                fpath = os.path.join(rec["dir"], "captions" + cap_ext)
+                if not os.path.exists(fpath):
+                    self._err(404, "This job has no caption file.")
+                    return
+                ctype = ("application/x-subrip" if cap_ext == ".srt"
+                         else "text/vtt")
+                fname = "cadence-captions" + cap_ext
+                # The -view kind feeds the page player's <track>
+                # element; it must arrive inline, not as a download.
+                disposition = kind != "captions-vtt-view"
             else:
                 self._err(404, "Unknown file.")
                 return
@@ -202,8 +216,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Content-Disposition",
-                             f'attachment; filename="{fname}"')
+            if disposition:
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{fname}"')
             self.send_header("Access-Control-Allow-Origin", "https://cetech.ai")
             self.end_headers()
             self.wfile.write(data)
