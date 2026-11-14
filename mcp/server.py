@@ -483,11 +483,15 @@ def _tool_refusal(mid, refusal):
 
 def handle(msg):
     method = msg.get("method", "")
+    if not isinstance(method, str):
+        method = ""
     mid = msg.get("id")
     low = method.lower()
     if any(d in low for d in DENY_SUBSTRINGS):
         return {"jsonrpc": "2.0", "id": mid,
-                "error": {"code": -32601, "message": "method refused: delete-shaped methods are denylisted"}}
+                "error": {"code": -32601, "message":
+                          "METHOD_REFUSED: Delete-shaped methods are "
+                          "not allowed on this Cadence server."}}
     if method == "initialize":
         return {"jsonrpc": "2.0", "id": mid, "result": {
             "protocolVersion": PROTOCOL, "capabilities": {"tools": {}},
@@ -533,7 +537,14 @@ def handle(msg):
                   file=sys.stderr)
             return _tool_refusal(mid, internal_error())
     return {"jsonrpc": "2.0", "id": mid,
-            "error": {"code": -32601, "message": "method not found / refused: %s" % method}}
+            "error": {"code": -32601, "message":
+                      "METHOD_NOT_FOUND: That method is not available "
+                      "on this Cadence server."}}
+
+
+def _rpc_error(mid, code, refusal):
+    return {"jsonrpc": "2.0", "id": mid,
+            "error": {"code": code, "message": refusal.text()}}
 
 
 def main():
@@ -544,8 +555,31 @@ def main():
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
+            # Transport discipline: a malformed line gets a named
+            # parse refusal, never silence and never raw parser text.
+            resp = _rpc_error(None, -32700, ToolRefusal(
+                "PARSE_ERROR",
+                "That line was not valid JSON, so it was not "
+                "processed."))
+            sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
             continue
-        resp = handle(msg)
+        if not isinstance(msg, dict):
+            resp = _rpc_error(None, -32600, ToolRefusal(
+                "INVALID_REQUEST",
+                "That message was not a JSON-RPC request object, so "
+                "it was not processed."))
+            sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+            continue
+        try:
+            resp = handle(msg)
+        except Exception as exc:
+            # No fault in dispatch may kill the stdio loop or leak its
+            # class/message to the caller (refusal-by-crash class).
+            print("cadence-mcp: transport error (%s)" % type(exc).__name__,
+                  file=sys.stderr)
+            resp = _rpc_error(msg.get("id"), -32603, internal_error())
         if resp is not None:
             sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
             sys.stdout.flush()

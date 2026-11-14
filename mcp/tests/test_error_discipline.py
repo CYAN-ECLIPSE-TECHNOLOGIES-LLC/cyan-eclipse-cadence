@@ -174,5 +174,68 @@ class ErrorDisciplineTests(unittest.TestCase):
         self.assertIn("receipt_id", out)
 
 
+class TransportDisciplineTests(unittest.TestCase):
+    """Transport layer: named refusals, and the loop never dies or leaks."""
+
+    def run_main(self, lines):
+        out = io.StringIO()
+        saved = (sys.stdin, sys.stdout)
+        sys.stdin, sys.stdout = io.StringIO("".join(lines)), out
+        try:
+            mod.main()
+        finally:
+            sys.stdin, sys.stdout = saved
+        return [json.loads(l) for l in out.getvalue().splitlines() if l.strip()]
+
+    def test_malformed_json_gets_named_parse_refusal(self):
+        resps = self.run_main(["this is not json\n"])
+        self.assertEqual(len(resps), 1)
+        self.assertEqual(resps[0]["error"]["code"], -32700)
+        msg = resps[0]["error"]["message"]
+        self.assertTrue(msg.startswith("PARSE_ERROR: "), msg)
+        for banned in BANNED:
+            self.assertNotIn(banned, msg)
+
+    def test_non_object_message_gets_named_refusal(self):
+        resps = self.run_main(['[1, 2, 3]\n'])
+        self.assertEqual(resps[0]["error"]["code"], -32600)
+        self.assertTrue(
+            resps[0]["error"]["message"].startswith("INVALID_REQUEST: "))
+
+    def test_loop_survives_malformed_line_and_answers_next(self):
+        resps = self.run_main([
+            "not json\n",
+            json.dumps({"jsonrpc": "2.0", "id": 7, "method": "ping"}) + "\n",
+        ])
+        self.assertEqual(len(resps), 2)
+        self.assertEqual(resps[1]["id"], 7)
+        self.assertEqual(resps[1]["result"], {})
+
+    def test_dispatch_fault_is_named_and_loop_survives(self):
+        out_lines = []
+        with mock.patch.object(mod, "handle",
+                               side_effect=RuntimeError(SECRET)):
+            resps = self.run_main([
+                json.dumps({"jsonrpc": "2.0", "id": 3,
+                            "method": "ping"}) + "\n"])
+        self.assertEqual(resps[0]["error"]["code"], -32603)
+        msg = resps[0]["error"]["message"]
+        self.assertTrue(msg.startswith("INTERNAL_ERROR: "), msg)
+        for banned in BANNED:
+            self.assertNotIn(banned, msg)
+        self.assertEqual(out_lines, [])
+
+    def test_method_refusals_are_named(self):
+        resp = mod.handle({"jsonrpc": "2.0", "id": 1,
+                           "method": "tools/delete"})
+        self.assertTrue(resp["error"]["message"].startswith("METHOD_REFUSED: "))
+        resp = mod.handle({"jsonrpc": "2.0", "id": 1, "method": "bogus/x"})
+        self.assertTrue(
+            resp["error"]["message"].startswith("METHOD_NOT_FOUND: "))
+        resp = mod.handle({"jsonrpc": "2.0", "id": 1, "method": 42})
+        self.assertTrue(
+            resp["error"]["message"].startswith("METHOD_NOT_FOUND: "))
+
+
 if __name__ == "__main__":
     unittest.main()
