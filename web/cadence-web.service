@@ -1,0 +1,15 @@
+[Unit]
+Description=Cyan Eclipse Cadence — free web humanizer service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/witness/app-family/cyan-eclipse-cadence/web
+ExecStart=/usr/bin/python3 /home/witness/app-family/cyan-eclipse-cadence/web/server.py
+Restart=always
+RestartSec=3
+Environment=CADENCE_WEB_PORT=8793
+Environment=CADENCE_WEB_WORK=/var/tmp/cadence-web
+
+[Install]
+WantedBy=multi-user.target
