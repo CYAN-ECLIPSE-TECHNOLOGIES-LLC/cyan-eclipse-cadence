@@ -66,6 +66,14 @@ PROBE_TIMEOUT_S = _timeout_env("CADENCE_PROBE_TIMEOUT_S", 30)
 ANALYSIS_TIMEOUT_S = _timeout_env("CADENCE_ANALYSIS_TIMEOUT_S", 180)
 STAGE_TIMEOUT_S = _timeout_env("CADENCE_STAGE_TIMEOUT_S", 300)
 
+# ffmpeg/ffprobe binary pin (2026-11-14, static-swap lane): the
+# service runs the pinned static upstream build named by the unit
+# env — never whatever a PATH lookup happens to find. Defaults
+# keep the bare names so the test suites' PATH-shim stubbing works
+# unchanged. System ffmpeg stays installed; rollback is a repoint.
+FFMPEG_BIN = os.environ.get("CADENCE_FFMPEG_BIN", "ffmpeg")
+FFPROBE_BIN = os.environ.get("CADENCE_FFPROBE_BIN", "ffprobe")
+
 # ffmpeg/ffprobe may only speak to local files and pipes — a crafted
 # playlist or metadata reference must never turn a probe into a
 # network fetch (http/hls/udp protocol abuse).
@@ -126,7 +134,7 @@ def _sha256(path):
 
 
 def probe_duration(path):
-    out = _run(["ffprobe", "-v", "error"] + PROTOCOL_WHITELIST +
+    out = _run([FFPROBE_BIN, "-v", "error"] + PROTOCOL_WHITELIST +
                ["-f", FORCED_FORMAT[_ext(path)],
                 "-show_entries", "format=duration", "-of", "json", path],
                timeout=PROBE_TIMEOUT_S).stdout
@@ -136,7 +144,7 @@ def probe_duration(path):
 def probe_media(path):
     """Pinned probe of an upload (forced demuxer). Returns
     (format first token, stream list)."""
-    out = _run(["ffprobe", "-v", "error"] + PROTOCOL_WHITELIST +
+    out = _run([FFPROBE_BIN, "-v", "error"] + PROTOCOL_WHITELIST +
                ["-f", FORCED_FORMAT[_ext(path)],
                 "-show_entries",
                 "format=format_name:stream=codec_type,codec_name",
@@ -173,7 +181,7 @@ def validate_upload(path, is_video):
 
 
 def decode(inp, wav_path):
-    _run(["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST +
+    _run([FFMPEG_BIN, "-y", "-v", "error"] + PROTOCOL_WHITELIST +
          ["-f", FORCED_FORMAT[_ext(inp)],
           "-i", inp, "-ac", "1", "-ar", str(SR), wav_path])
 
@@ -182,7 +190,7 @@ def detect_silences(wav_path):
     """Return [(start_s, end_s), ...] from ffmpeg silencedetect."""
     try:
         p = subprocess.run(
-            ["ffmpeg"] + PROTOCOL_WHITELIST + [
+            [FFMPEG_BIN] + PROTOCOL_WHITELIST + [
              "-i", wav_path, "-af",
              f"silencedetect=noise={SILENCE_NOISE_DB}:d={SILENCE_MIN_DUR}",
              "-f", "null", "-"], capture_output=True, text=True,
@@ -205,7 +213,7 @@ def detect_silences(wav_path):
 def loudness_lufs(path):
     try:
         p = subprocess.run(
-            ["ffmpeg"] + PROTOCOL_WHITELIST + [
+            [FFMPEG_BIN] + PROTOCOL_WHITELIST + [
              "-i", path, "-af", "loudnorm=print_format=json",
              "-f", "null", "-"], capture_output=True, text=True,
             timeout=ANALYSIS_TIMEOUT_S)
@@ -395,7 +403,7 @@ def humanize(inp_path, out_mp3_path, workdir, mode="audio"):
     seed = int(hashlib.sha256(open(inp_path, "rb").read()).hexdigest()[:8], 16)
     rng = random.Random(seed)
     write_pcm(shaped, reshape(pcm, sil, rng, mode=mode))
-    _run(["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST +
+    _run([FFMPEG_BIN, "-y", "-v", "error"] + PROTOCOL_WHITELIST +
          ["-i", shaped, "-af",
           "equalizer=f=3000:t=q:w=1.2:g=-2,"
           "highshelf=f=9000:g=-1.5,"
@@ -442,7 +450,7 @@ class StageTimeout(Refusal):
 
 
 def probe_streams(path):
-    out = _run(["ffprobe", "-v", "error"] + PROTOCOL_WHITELIST +
+    out = _run([FFPROBE_BIN, "-v", "error"] + PROTOCOL_WHITELIST +
                ["-f", FORCED_FORMAT[_ext(path)],
                 "-show_entries",
                 "stream=codec_type,codec_name,width,height,nb_frames",
@@ -454,7 +462,7 @@ def probe_streams(path):
 def video_stream_hash(path):
     try:
         p = subprocess.run(
-            ["ffmpeg", "-v", "error"] + PROTOCOL_WHITELIST + [
+            [FFMPEG_BIN, "-v", "error"] + PROTOCOL_WHITELIST + [
              "-f", FORCED_FORMAT[_ext(path)],
              "-i", path, "-map", "0:v:0",
              "-c", "copy", "-f", "hash", "-hash", "sha256", "-"],
@@ -493,7 +501,7 @@ def humanize_video(inp_path, out_path, workdir):
         raise Refusal("That video has no voice track to humanize.")
     ext = os.path.splitext(out_path)[1].lower()
     extracted = os.path.join(workdir, "track.wav")
-    _run(["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST +
+    _run([FFMPEG_BIN, "-y", "-v", "error"] + PROTOCOL_WHITELIST +
          ["-f", FORCED_FORMAT[_ext(inp_path)],
           "-i", inp_path, "-map", "0:a:0", "-ac", "1", "-ar",
           str(SR), extracted])
@@ -532,7 +540,7 @@ def humanize_video(inp_path, out_path, workdir):
     vhash_before = video_stream_hash(inp_path)
     acodec = (["-c:a", "libopus", "-b:a", "128k"] if ext == ".webm"
               else ["-c:a", "aac", "-b:a", "192k"])
-    base_cmd = ["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST + \
+    base_cmd = [FFMPEG_BIN, "-y", "-v", "error"] + PROTOCOL_WHITELIST + \
                ["-f", FORCED_FORMAT[_ext(inp_path)],
                 "-i", inp_path, "-i", human_mp3]
     plain_cmd = (base_cmd + ["-map", "0:v:0", "-map", "1:a:0",

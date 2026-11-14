@@ -27,12 +27,15 @@ MODEL_PATH = os.environ.get(
     "/opt/cadence-whisper-models/faster-whisper-base")
 MODEL_ID = os.environ.get("CADENCE_WHISPER_MODEL_ID",
                           "Systran/faster-whisper-base")
+# Same binary pin as humanize.py (env inherited from the service
+# via captions.py); default keeps the bare name.
+FFMPEG_BIN = os.environ.get("CADENCE_FFMPEG_BIN", "ffmpeg")
 SR = 16000
 
 
 def decode_pcm(path):
     p = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path, "-ac", "1",
+        [FFMPEG_BIN, "-v", "error", "-i", path, "-ac", "1",
          "-ar", str(SR), "-f", "f32le", "-"],
         capture_output=True)
     if p.returncode != 0:

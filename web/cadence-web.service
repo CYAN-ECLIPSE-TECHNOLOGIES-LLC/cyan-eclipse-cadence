@@ -18,6 +18,11 @@ Environment=CADENCE_WEB_PORT=8793
 Environment=CADENCE_WEB_WORK=/var/tmp/cadence-web
 Environment=CADENCE_WEB_TRUSTED_PROXIES=146.190.150.118
 Environment=HOME=/var/lib/cadenceweb
+# ffmpeg pin (2026-11-14, static-swap lane): pinned static upstream
+# build; system ffmpeg untouched; rollback = drop these two lines,
+# daemon-reload, restart.
+Environment=CADENCE_FFMPEG_BIN=/opt/cadence-ffmpeg/9.0.2-57/bin/ffmpeg
+Environment=CADENCE_FFPROBE_BIN=/opt/cadence-ffmpeg/9.0.2-57/bin/ffprobe
 UMask=0027
 # Sandbox: no privilege gain, no devices, kernel surfaces locked,
 # home read-only (the code lives under /home; writes go only to the
