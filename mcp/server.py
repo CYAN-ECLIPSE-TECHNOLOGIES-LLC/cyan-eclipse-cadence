@@ -41,6 +41,54 @@ sys.path.insert(0, str(HOME))
 DENY_SUBSTRINGS = ("delete", "remove", "drop", "destroy", "purge")
 
 
+# --- error discipline (CAD-16) ------------------------------------------------
+# Every failure a caller can reach returns a ToolRefusal: a stable error
+# name plus one plain-language sentence. An exception class name, a raw
+# exception message, and any stack fragment are NEVER returned to a
+# caller, on any tool path. Unexpected failures collapse to the single
+# INTERNAL_ERROR refusal below; the exception type is noted on stderr
+# for operators only (stderr is not a caller surface).
+
+class ToolRefusal(Exception):
+    """A named, plain-language refusal shown to the caller as-is."""
+
+    def __init__(self, name, sentence):
+        super().__init__(sentence)
+        self.name = name
+        self.sentence = sentence
+
+    def text(self):
+        return "%s: %s" % (self.name, self.sentence)
+
+
+def internal_error():
+    return ToolRefusal(
+        "INTERNAL_ERROR",
+        "Something went wrong inside Cadence while handling that "
+        "request. No internal details were returned, and no render "
+        "was started.")
+
+
+def invalid_arguments(sentence):
+    return ToolRefusal("INVALID_ARGUMENTS", sentence)
+
+
+def script_not_found():
+    return ToolRefusal(
+        "SCRIPT_NOT_FOUND",
+        "No script with that identifier is stored in this Cadence "
+        "checkout. Use cadence_scripts_list to see the scripts that "
+        "are available.")
+
+
+def render_record_not_found():
+    return ToolRefusal(
+        "RENDER_RECORD_NOT_FOUND",
+        "No render record with that identifier is stored in this "
+        "Cadence checkout. Use cadence_renders_list to see the "
+        "records that are available.")
+
+
 def canonical(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -85,7 +133,10 @@ def append_receipt(tool, args, result_summary):
     STATE.mkdir(parents=True, exist_ok=True)
     verdict = verify_chain()
     if not verdict["ok"]:
-        raise RuntimeError("receipt chain broken at seq %s; refusing to append" % verdict["diverging_seq"])
+        raise ToolRefusal(
+            "RECEIPT_CHAIN_BROKEN",
+            "The facade receipt chain does not verify, so this call "
+            "was refused and nothing was recorded.")
     rows = _read_receipts()
     seq = len(rows) + 1
     body = {
@@ -199,6 +250,11 @@ def t_scripts_list(args):
 
 def t_scripts_read(args):
     sid = args.get("script_id")
+    if not isinstance(sid, str) or not sid:
+        raise invalid_arguments(
+             "That call needs a script_id naming a stored "
+            "script. Use cadence_scripts_list to see the scripts that "
+            "are available.")
     for p in _script_files():
         if p.stem == sid:
             from cadence.compile import compile_file
@@ -208,7 +264,7 @@ def t_scripts_read(args):
             summary["span_count"] = len(score.get("spans", []))
             summary["score_sha256"] = sha256_text(canonical(score))
             return summary
-    raise ValueError("unknown script_id %r" % (sid,))
+    raise script_not_found()
 
 
 def t_voices_list(args):
@@ -222,10 +278,15 @@ def t_renders_list(args):
 
 def t_renders_read(args):
     rid = args.get("record_id")
+    if not isinstance(rid, str) or not rid:
+        raise invalid_arguments(
+             "That call needs a record_id naming a stored "
+            "render record. Use cadence_renders_list to see the "
+            "records that are available.")
     for r in _render_records():
         if r["record_id"] == rid:
             return r
-    raise ValueError("unknown record_id %r" % (rid,))
+    raise render_record_not_found()
 
 
 def t_receipts_verify(args):
@@ -234,9 +295,14 @@ def t_receipts_verify(args):
 
 def t_render_propose(args):
     sid = args.get("script_id")
+    if not isinstance(sid, str) or not sid:
+        raise invalid_arguments(
+             "That call needs a script_id naming a stored "
+            "script. Use cadence_scripts_list to see the scripts that "
+            "are available.")
     known = {p.stem for p in _script_files()}
     if sid not in known:
-        raise ValueError("unknown script_id %r" % (sid,))
+        raise script_not_found()
     PROPOSALS.mkdir(parents=True, exist_ok=True)
     existing = sorted(PROPOSALS.glob("P-*.json"))
     seq = len(existing) + 1
@@ -409,6 +475,12 @@ def tool_list_payload():
 
 # --- JSON-RPC loop -------------------------------------------------------------
 
+def _tool_refusal(mid, refusal):
+    return {"jsonrpc": "2.0", "id": mid, "result": {
+        "isError": True,
+        "content": [{"type": "text", "text": refusal.text()}]}}
+
+
 def handle(msg):
     method = msg.get("method", "")
     mid = msg.get("id")
@@ -428,13 +500,21 @@ def handle(msg):
         return {"jsonrpc": "2.0", "id": mid, "result": {"tools": tool_list_payload()}}
     if method == "tools/call":
         params = msg.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
         name = params.get("name")
         args = params.get("arguments") or {}
         tool = TOOL_MAP.get(name)
         if tool is None:
-            return {"jsonrpc": "2.0", "id": mid, "result": {
-                "isError": True, "content": [{"type": "text", "text":
-                    "unknown tool %r; no render/apply tool exists on this facade" % (name,)}]}}
+            return _tool_refusal(mid, ToolRefusal(
+                "UNKNOWN_TOOL",
+                "That tool is not available on this Cadence server. "
+                "Use tools/list to see the tools that are available; "
+                "no render or apply tool exists on this server."))
+        if not isinstance(args, dict):
+            return _tool_refusal(mid, invalid_arguments(
+                "Tool arguments must be an object naming the inputs "
+                "the tool expects."))
         try:
             result = tool["fn"](args)
             rid, head = append_receipt(name, args, result)
@@ -443,9 +523,15 @@ def handle(msg):
             result["receipt_head"] = head
             return {"jsonrpc": "2.0", "id": mid, "result": {
                 "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}}
+        except ToolRefusal as refusal:
+            return _tool_refusal(mid, refusal)
         except Exception as exc:
-            return {"jsonrpc": "2.0", "id": mid, "result": {
-                "isError": True, "content": [{"type": "text", "text": "%s: %s" % (type(exc).__name__, exc)}]}}
+            # CAD-16: never return the exception class, message, or a
+            # stack fragment to the caller. Operators see the type on
+            # stderr only; callers get the stable INTERNAL_ERROR name.
+            print("cadence-mcp: internal error (%s)" % type(exc).__name__,
+                  file=sys.stderr)
+            return _tool_refusal(mid, internal_error())
     return {"jsonrpc": "2.0", "id": mid,
             "error": {"code": -32601, "message": "method not found / refused: %s" % method}}
 
