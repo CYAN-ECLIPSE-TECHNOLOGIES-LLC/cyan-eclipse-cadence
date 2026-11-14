@@ -47,12 +47,74 @@ BREATH_DB_REL_PEAK = -34.0           # breath cue peak rel. speech peak
 TARGET_LUFS = -16.0
 TARGET_TP = -1.5
 
+# Hardening (2026-11-14): every subprocess call in this module is
+# time-bounded. A hung or pathological ffmpeg/ffprobe must end as a
+# named refusal (StageTimeout), never as a wedged job — server.py
+# holds one of only two processing slots for the whole call. Bounds
+# are per call, sized far above the measured worst cases at the
+# service caps (audio <= 600 s, video <= 180 s). The captions
+# transcription subprocess carries its own 600 s bound in
+# captions.py and is deliberately NOT gated here.
+def _timeout_env(name, default):
+    try:
+        return float(os.environ.get(name, "") or default)
+    except ValueError:
+        return float(default)
+
+
+PROBE_TIMEOUT_S = _timeout_env("CADENCE_PROBE_TIMEOUT_S", 30)
+ANALYSIS_TIMEOUT_S = _timeout_env("CADENCE_ANALYSIS_TIMEOUT_S", 180)
+STAGE_TIMEOUT_S = _timeout_env("CADENCE_STAGE_TIMEOUT_S", 300)
+
+# ffmpeg/ffprobe may only speak to local files and pipes — a crafted
+# playlist or metadata reference must never turn a probe into a
+# network fetch (http/hls/udp protocol abuse).
+PROTOCOL_WHITELIST = ["-protocol_whitelist", "file,pipe"]
+
+# Format/codec pinning (2026-11-14, CVE-check follow-up): ffmpeg and
+# ffprobe identify inputs by CONTENT probing, so without pinning an
+# upload with an accepted extension could be demuxed/decoded as an
+# entirely different format — the route by which unlisted-decoder
+# CVEs (MagicYUV CVE-2026-8461, CineForm CVE-2026-70632 — neither
+# has a stock-noble fix) become reachable. Every probe/decode of an
+# upload therefore (a) forces the demuxer matching the file's
+# accepted extension, and (b) validate_upload() checks the probed
+# container + codec set against the allowlists below BEFORE any
+# decoder runs. This pinning plus the service sandbox are the only
+# closures for CVE-2026-8461.
+FORCED_FORMAT = {".mp3": "mp3", ".wav": "wav", ".m4a": "mov",
+                 ".mp4": "mov", ".mov": "mov", ".webm": "matroska"}
+FORMAT_FAMILY = {".mp3": "mp3", ".wav": "wav", ".m4a": "mov",
+                 ".mp4": "mov", ".mov": "mov", ".webm": "matroska"}
+AUDIO_CODECS = {"mp3", "aac", "alac", "ac3", "eac3", "flac",
+                "opus", "vorbis",
+                "pcm_s8", "pcm_u8", "pcm_s16le", "pcm_s24le",
+                "pcm_s32le", "pcm_f32le", "pcm_f64le",
+                "pcm_mulaw", "pcm_alaw"}
+VIDEO_CODECS = {"h264", "hevc", "vp8", "vp9", "av1", "mpeg4",
+                "prores", "mjpeg"}
+ATTACHED_PIC_CODECS = {"mjpeg", "png"}  # cover art in audio files
+PIN_REFUSAL = ("That file's format or encoding isn't one we take — "
+               "mp3, wav or m4a audio; mp4, mov or webm video with "
+               "standard encodings.")
+
+
+def _ext(path):
+    return os.path.splitext(path)[1].lower()
+
 SHARE_LINE = ("Produced with Cyan Eclipse Cadence \u2014 free at "
               "cetech.ai/free-tools")
 
 
-def _run(cmd):
-    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+def _run(cmd, timeout=None):
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True,
+                              text=True,
+                              timeout=timeout or STAGE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise StageTimeout(
+            "Processing took too long on that file — it has been "
+            "discarded; nothing was kept.")
 
 
 def _sha256(path):
@@ -64,22 +126,71 @@ def _sha256(path):
 
 
 def probe_duration(path):
-    out = _run(["ffprobe", "-v", "error", "-show_entries",
-                "format=duration", "-of", "json", path]).stdout
+    out = _run(["ffprobe", "-v", "error"] + PROTOCOL_WHITELIST +
+               ["-f", FORCED_FORMAT[_ext(path)],
+                "-show_entries", "format=duration", "-of", "json", path],
+               timeout=PROBE_TIMEOUT_S).stdout
     return float(json.loads(out)["format"]["duration"])
 
 
+def probe_media(path):
+    """Pinned probe of an upload (forced demuxer). Returns
+    (format first token, stream list)."""
+    out = _run(["ffprobe", "-v", "error"] + PROTOCOL_WHITELIST +
+               ["-f", FORCED_FORMAT[_ext(path)],
+                "-show_entries",
+                "format=format_name:stream=codec_type,codec_name",
+                "-of", "json", path],
+               timeout=PROBE_TIMEOUT_S).stdout
+    data = json.loads(out)
+    fmt = (data.get("format", {}).get("format_name")
+           or "").split(",")[0].strip()
+    return fmt, data.get("streams", [])
+
+
+def validate_upload(path, is_video):
+    """Named-refuse any upload whose probed container or codecs fall
+    outside the accepted set — before any decoder runs. Subtitle,
+    data and attachment streams are never decoded by the chain and
+    are not carried into outputs, so they are not codec-checked."""
+    fmt, streams = probe_media(path)
+    if fmt != FORMAT_FAMILY[_ext(path)]:
+        raise Refusal(PIN_REFUSAL)
+    have_audio = False
+    for s in streams:
+        ctype, codec = s.get("codec_type"), s.get("codec_name")
+        if ctype == "audio":
+            have_audio = True
+            if codec not in AUDIO_CODECS:
+                raise Refusal(PIN_REFUSAL)
+        elif ctype == "video":
+            allowed = VIDEO_CODECS if is_video else ATTACHED_PIC_CODECS
+            if codec not in allowed:
+                raise Refusal(PIN_REFUSAL)
+    if not have_audio:
+        raise Refusal("That file has no audio track we can work on — "
+                      "the humanizer needs a voice track.")
+
+
 def decode(inp, wav_path):
-    _run(["ffmpeg", "-y", "-v", "error", "-i", inp,
-          "-ac", "1", "-ar", str(SR), wav_path])
+    _run(["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST +
+         ["-f", FORCED_FORMAT[_ext(inp)],
+          "-i", inp, "-ac", "1", "-ar", str(SR), wav_path])
 
 
 def detect_silences(wav_path):
     """Return [(start_s, end_s), ...] from ffmpeg silencedetect."""
-    p = subprocess.run(
-        ["ffmpeg", "-i", wav_path, "-af",
-         f"silencedetect=noise={SILENCE_NOISE_DB}:d={SILENCE_MIN_DUR}",
-         "-f", "null", "-"], capture_output=True, text=True)
+    try:
+        p = subprocess.run(
+            ["ffmpeg"] + PROTOCOL_WHITELIST + [
+             "-i", wav_path, "-af",
+             f"silencedetect=noise={SILENCE_NOISE_DB}:d={SILENCE_MIN_DUR}",
+             "-f", "null", "-"], capture_output=True, text=True,
+            timeout=ANALYSIS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise StageTimeout(
+            "Processing took too long on that file — it has been "
+            "discarded; nothing was kept.")
     sil, start = [], None
     for line in p.stderr.splitlines():
         if "silence_start:" in line:
@@ -92,9 +203,16 @@ def detect_silences(wav_path):
 
 
 def loudness_lufs(path):
-    p = subprocess.run(
-        ["ffmpeg", "-i", path, "-af", "loudnorm=print_format=json",
-         "-f", "null", "-"], capture_output=True, text=True)
+    try:
+        p = subprocess.run(
+            ["ffmpeg"] + PROTOCOL_WHITELIST + [
+             "-i", path, "-af", "loudnorm=print_format=json",
+             "-f", "null", "-"], capture_output=True, text=True,
+            timeout=ANALYSIS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise StageTimeout(
+            "Processing took too long on that file — it has been "
+            "discarded; nothing was kept.")
     err = p.stderr
     i = err.rfind("[Parsed_loudnorm")
     if i < 0:
@@ -277,7 +395,8 @@ def humanize(inp_path, out_mp3_path, workdir, mode="audio"):
     seed = int(hashlib.sha256(open(inp_path, "rb").read()).hexdigest()[:8], 16)
     rng = random.Random(seed)
     write_pcm(shaped, reshape(pcm, sil, rng, mode=mode))
-    _run(["ffmpeg", "-y", "-v", "error", "-i", shaped, "-af",
+    _run(["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST +
+         ["-i", shaped, "-af",
           "equalizer=f=3000:t=q:w=1.2:g=-2,"
           "highshelf=f=9000:g=-1.5,"
           "acompressor=threshold=-18dB:ratio=2:attack=20:release=250,"
@@ -316,18 +435,34 @@ class Refusal(Exception):
     """A plain-language refusal the service may show the visitor."""
 
 
+class StageTimeout(Refusal):
+    """A processing stage exceeded its time bound. Raised as a
+    Refusal so the job ends as a named refusal and its slot and
+    files are released under the usual discipline."""
+
+
 def probe_streams(path):
-    out = _run(["ffprobe", "-v", "error", "-show_entries",
+    out = _run(["ffprobe", "-v", "error"] + PROTOCOL_WHITELIST +
+               ["-f", FORCED_FORMAT[_ext(path)],
+                "-show_entries",
                 "stream=codec_type,codec_name,width,height,nb_frames",
-                "-of", "json", path]).stdout
+                "-of", "json", path],
+               timeout=PROBE_TIMEOUT_S).stdout
     return json.loads(out).get("streams", [])
 
 
 def video_stream_hash(path):
-    p = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path, "-map", "0:v:0",
-         "-c", "copy", "-f", "hash", "-hash", "sha256", "-"],
-        capture_output=True, text=True)
+    try:
+        p = subprocess.run(
+            ["ffmpeg", "-v", "error"] + PROTOCOL_WHITELIST + [
+             "-f", FORCED_FORMAT[_ext(path)],
+             "-i", path, "-map", "0:v:0",
+             "-c", "copy", "-f", "hash", "-hash", "sha256", "-"],
+            capture_output=True, text=True, timeout=ANALYSIS_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise StageTimeout(
+            "Processing took too long on that file — it has been "
+            "discarded; nothing was kept.")
     line = (p.stdout or "").strip()
     return line.split("=", 1)[1] if "=" in line else None
 
@@ -358,8 +493,10 @@ def humanize_video(inp_path, out_path, workdir):
         raise Refusal("That video has no voice track to humanize.")
     ext = os.path.splitext(out_path)[1].lower()
     extracted = os.path.join(workdir, "track.wav")
-    _run(["ffmpeg", "-y", "-v", "error", "-i", inp_path,
-          "-map", "0:a:0", "-ac", "1", "-ar", str(SR), extracted])
+    _run(["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST +
+         ["-f", FORCED_FORMAT[_ext(inp_path)],
+          "-i", inp_path, "-map", "0:a:0", "-ac", "1", "-ar",
+          str(SR), extracted])
     human_mp3 = os.path.join(workdir, "humanized.mp3")
     receipt = humanize(extracted, human_mp3,
                        os.path.join(workdir, "audio-work"), mode="video")
@@ -395,8 +532,9 @@ def humanize_video(inp_path, out_path, workdir):
     vhash_before = video_stream_hash(inp_path)
     acodec = (["-c:a", "libopus", "-b:a", "128k"] if ext == ".webm"
               else ["-c:a", "aac", "-b:a", "192k"])
-    base_cmd = ["ffmpeg", "-y", "-v", "error", "-i", inp_path,
-                "-i", human_mp3]
+    base_cmd = ["ffmpeg", "-y", "-v", "error"] + PROTOCOL_WHITELIST + \
+               ["-f", FORCED_FORMAT[_ext(inp_path)],
+                "-i", inp_path, "-i", human_mp3]
     plain_cmd = (base_cmd + ["-map", "0:v:0", "-map", "1:a:0",
                              "-c:v", "copy"] + acodec + [out_path])
     if srt_path and ext in (".mp4", ".mov"):

@@ -4,12 +4,51 @@ After=network.target
 
 [Service]
 Type=simple
+# Hardening (2026-11-14): the service parses stranger-supplied media
+# with ffmpeg — it never runs as root. cadenceweb is a dedicated
+# system user that owns only the work dir; the code tree is reached
+# read-only via ACLs.
+User=cadenceweb
+Group=cadenceweb
 WorkingDirectory=/home/witness/app-family/cyan-eclipse-cadence/web
 ExecStart=/usr/bin/python3 /home/witness/app-family/cyan-eclipse-cadence/web/server.py
 Restart=always
 RestartSec=3
 Environment=CADENCE_WEB_PORT=8793
 Environment=CADENCE_WEB_WORK=/var/tmp/cadence-web
+Environment=CADENCE_WEB_TRUSTED_PROXIES=146.190.150.118
+Environment=HOME=/var/lib/cadenceweb
+UMask=0027
+# Sandbox: no privilege gain, no devices, kernel surfaces locked,
+# home read-only (the code lives under /home; writes go only to the
+# work dir via ProtectSystem=strict + ReadWritePaths).
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths=/var/tmp/cadence-web /var/lib/cadenceweb
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# PrivateTmp is deliberately NOT set: the work dir is a dedicated,
+# single-purpose directory (mode 750, owned by cadenceweb) whose
+# contents — live job outputs and the daily-cap ledger — must
+# survive service restarts and stay inspectable by operators.
+# PrivateTmp would silently reset the cap ledger on every restart
+# and hide in-flight jobs; the isolation it adds is already provided
+# by the dedicated user, the dir perms and ProtectSystem=strict.
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=1024
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target

@@ -15,13 +15,15 @@ cadence-web-surface-20261114/.
 """
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from humanize import Refusal, humanize, humanize_video, probe_duration
+from humanize import (Refusal, humanize, humanize_video,
+                      probe_duration, validate_upload)
 
 BASE = "/cadence-voice"
 WORK_ROOT = os.environ.get("CADENCE_WEB_WORK", "/var/tmp/cadence-web")
@@ -38,6 +40,16 @@ VIDEO_EXT = {".mp4", ".mov", ".webm"}
 ALLOWED_EXT = AUDIO_EXT | VIDEO_EXT
 DOWNLOAD_TYPES = {".mp3": "audio/mpeg", ".mp4": "video/mp4",
                   ".mov": "video/quicktime", ".webm": "video/webm"}
+
+# Hardening (2026-11-14): X-Forwarded-For is honoured ONLY when the
+# direct peer is the Caddy proxy host. The firewall already admits
+# just that host to this port; this makes the trust explicit in
+# code, so a future firewall change or a local process cannot spoof
+# visitor addresses to defeat the daily cap.
+TRUSTED_PROXIES = {p.strip() for p in os.environ.get(
+    "CADENCE_WEB_TRUSTED_PROXIES", "146.190.150.118").split(",")
+    if p.strip()}
+NOSNIFF = ("X-Content-Type-Options", "nosniff")
 
 os.makedirs(WORK_ROOT, exist_ok=True)
 _jobs = {}
@@ -127,12 +139,21 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # counters only; no paths logged
         pass
 
+    def _client_ip(self):
+        peer = self.client_address[0]
+        if peer in TRUSTED_PROXIES:
+            xff = self.headers.get("X-Forwarded-For")
+            if xff:
+                return xff.split(",")[0].strip()
+        return peer
+
     def _json(self, code, obj):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "https://cetech.ai")
+        self.send_header(*NOSNIFF)
         self.end_headers()
         self.wfile.write(body)
 
@@ -147,13 +168,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Length", "0")
+        self.send_header(*NOSNIFF)
         self.end_headers()
 
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == BASE + "/api/health":
             self._json(200, {"ok": True, "service": "cadence-web",
-                             "version": "1.1.0",
+                             "version": "1.1.1",
                              "jobs_today": sum(
                                  v.get("jobs", 0) for v in
                                  _counters().get(date.today().isoformat(),
@@ -220,17 +242,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Disposition",
                                  f'attachment; filename="{fname}"')
             self.send_header("Access-Control-Allow-Origin", "https://cetech.ai")
+            self.send_header(*NOSNIFF)
             self.end_headers()
             self.wfile.write(data)
             return
         self._err(404, "Not found.")
 
     def do_POST(self):
-        ip = self.client_address[0]
-        # Behind the H1 proxy the client is H1; prefer X-Forwarded-For.
-        xff = self.headers.get("X-Forwarded-For")
-        if xff:
-            ip = xff.split(",")[0].strip()
+        ip = self._client_ip()
         path = self.path.split("?")[0]
         if path != BASE + "/api/jobs":
             self._err(404, "Not found.", ip)
@@ -277,6 +296,15 @@ class Handler(BaseHTTPRequestHandler):
             self._err(400, "We could not read that file \u2014 mp3, wav or "
                            "m4a audio; mp4, mov or webm video.", ip)
             return
+        try:
+            # Format/codec pinning (2026-11-14): refuse anything the
+            # pinned probe places outside the accepted container +
+            # codec set, before any decoder runs.
+            validate_upload(in_path, is_video)
+        except Refusal as e:
+            _rm_job({"dir": jdir})
+            self._err(400, str(e), ip)
+            return
         if dur > dur_cap:
             _rm_job({"dir": jdir})
             self._err(400, "That file runs over the free-tier length "
@@ -320,7 +348,24 @@ def _process(job_id, in_path, rec):
             print(f"job {job_id[:8]} failed: {type(e).__name__}")
 
 
+def _sweep_orphans():
+    """Process-and-discard across restarts (hardening, 2026-11-14):
+    the job table is in-memory, so a job directory left by a previous
+    process can never be served or swept again — left alone it would
+    outlive the 15-minute TTL forever. Remove pre-existing job
+    directories at startup; counters.json (a file) is kept."""
+    removed = 0
+    for name in os.listdir(WORK_ROOT):
+        p = os.path.join(WORK_ROOT, name)
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+            removed += 1
+    if removed:
+        print(f"startup sweep: removed {removed} orphaned job dir(s)")
+
+
 def main():
+    _sweep_orphans()
     threading.Thread(target=_sweeper, daemon=True).start()
     host = os.environ.get("CADENCE_WEB_HOST", "0.0.0.0")
     port = int(os.environ.get("CADENCE_WEB_PORT", "8791"))
